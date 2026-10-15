@@ -65,6 +65,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:26px;margin:0}
 #review video{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:10px;background:#000}
 button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offset:2px}
 #lib{display:none}
+#toast{position:fixed;left:50%;top:calc(48px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:30;background:var(--fg);color:var(--bg);font:600 13px inherit;padding:8px 14px;border-radius:999px;white-space:nowrap}
 #review{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
 #review img{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:10px;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
 #review p{margin:0;text-align:center;color:var(--muted);font-size:12px}
@@ -108,6 +109,7 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <div class="grp end"><button class="side" id="t-controls" type="button" aria-expanded="false">조절</button><button class="side" id="flip" type="button">전환</button></div>
 </div>
 </div>
+<div id="toast" hidden></div>
 <div id="review" hidden>
   <img id="shot" alt="촬영한 사진">
   <video id="clip" playsinline controls loop hidden></video>
@@ -580,17 +582,24 @@ $("shutter").onclick=()=>{
   const d=atob(canvas.toDataURL("image/jpeg",.93).split(",")[1]), u8=new Uint8Array(d.length);
   for(let i=0;i<d.length;i++) u8[i]=d.charCodeAt(i);
   const blob=new Blob([u8],{type:"image/jpeg"}), file=new File([blob],fileName("jpg"),{type:"image/jpeg"});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){
+  if(IS_ANDROID){download(blob,file.name);toast("저장했습니다 (갤러리 → Download)");}
+  else if(navigator.canShare&&navigator.canShare({files:[file]})){
     // 공유 시트를 닫으면 저장 안 함, 다른 오류면 확인 화면으로
     navigator.share({files:[file]}).catch(e=>{if(e.name!=="AbortError") showReview(blob,"jpg");});
   }else showReview(blob,"jpg");
 };
 const fileName=ext=>"filterroom_"+new Date().toISOString().slice(0,19).replace(/[-:T]/g,"")+"."+ext;
+// 안드로이드는 공유 시트에 "저장"이 없어서 바로 다운로드 (갤러리의 Download 앨범에 들어감)
+const IS_ANDROID=/Android/i.test(navigator.userAgent);
+function download(blob,name){const a=document.createElement("a"),u=URL.createObjectURL(blob);a.href=u;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(u),4000);}
+let toastT;
+function toast(t){const m=$("toast");m.textContent=t;m.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>m.hidden=true,2200);}
 $("retake").onclick=()=>{$("review").hidden=true;$("clip").pause();URL.revokeObjectURL(shotUrl);};
 $("save").onclick=async()=>{
   const name=fileName(shotExt);
   const file=new File([shotBlob],name,{type:shotBlob.type||(shotExt==="jpg"?"image/jpeg":"video/mp4")});
-  if(navigator.canShare&&navigator.canShare({files:[file]})){
+  if(IS_ANDROID){download(shotBlob,name);toast("저장했습니다 (갤러리 → Download)");}
+  else if(navigator.canShare&&navigator.canShare({files:[file]})){
     try{await navigator.share({files:[file]});}catch(e){}
   }else{
     const a=document.createElement("a");a.href=shotUrl;a.download=name;a.click();
