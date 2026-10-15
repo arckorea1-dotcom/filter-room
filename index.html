@@ -52,6 +52,7 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
   <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
+  <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
   <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
 </div>
 <div id="bar">
@@ -101,7 +102,7 @@ const COPY=`precision highp float;varying vec2 v;uniform sampler2D T;void main()
 // 최종: 피부 보정(작은 블러) → 주름 완화(큰 블러 평균보다 어두운 피부만 채움) → 색감 필터 → 강도·밝기
 const FINAL=`precision highp float;varying vec2 v;
 uniform sampler2D S,B,L;uniform float uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
-uniform vec3 uSh,uHi;uniform vec2 uRes;
+uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp;
 const vec3 LU=vec3(.299,.587,.114);
 float sat01(float x){return clamp(x,0.,1.);}
 void main(){
@@ -117,6 +118,12 @@ void main(){
   o+=(b-c)*uSm*skin*edge*.92+uSm*skin*7./255.;
   float dk=dot(l,LU)-Y;
   if(dk>0.){o+=(l-c)*uWr*skin*sat01(dk/(28./255.))*sat01((75./255.-dk)/(25./255.));}
+ }
+ // 선명도: 라플라시안 샤프닝. 피부는 25%만 적용해 눈·머리카락·윤곽만 또렷하게
+ if(uSharp>0.){
+  vec2 t=uTx*1.5;
+  vec3 n=texture2D(S,uv+vec2(t.x,0.)).rgb+texture2D(S,uv-vec2(t.x,0.)).rgb+texture2D(S,uv+vec2(0.,t.y)).rgb+texture2D(S,uv-vec2(0.,t.y)).rgb;
+  o+=(c*4.-n)*uSharp*(1.-.75*skin);
  }
  vec3 x=o*vec3(1.+uTemp*.12+uTint*.03,1.-uTint*.08,1.-uTemp*.12+uTint*.03)*exp2(uExp);
  x=clamp((x-.5)*(1.+uCon)+.5,0.,1.);
@@ -179,7 +186,7 @@ function pass(pr,inTex,out,dir){
 }
 
 // ── 상태 ──
-const state={f:"milk",k:80,wr:70,sm:50,br:0,facing:"user"};
+const state={f:"milk",k:80,wr:70,sm:50,sh:40,br:0,facing:"user"};
 try{Object.assign(state,JSON.parse(localStorage.getItem("fr-cam")||"{}"));}catch(e){}
 if(!FILTERS.some(f=>f.id===state.f)) state.f="milk";
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
@@ -203,6 +210,7 @@ function render(){
   f("uExp",p.exp||0); f("uCon",p.con||0); f("uSat",p.sat||0); f("uTemp",p.temp||0); f("uTint",p.tint||0);
   f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
   gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,W,H);
+  gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2);
   gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
 }
 
@@ -292,7 +300,7 @@ for(const f of FILTERS){
   b.onclick=()=>{state.f=f.id;save();strip.querySelectorAll(".fx").forEach(x=>x.setAttribute("aria-pressed",x===b));dirty=true;};
   strip.append(b);
 }
-for(const id of ["k","wr","sm","br"]){
+for(const id of ["k","wr","sm","sh","br"]){
   const el=$(id),out=$(id+"v");el.value=state[id];out.textContent=state[id];
   el.oninput=()=>{state[id]=+el.value;out.textContent=el.value;save();dirty=true;};
 }
