@@ -92,7 +92,7 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
   <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
   <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
-  <div class="resetrow"><span id="scenehint">이 필터의 값은 따로 기억됩니다</span><button id="reset" type="button">기본값으로</button></div>
+  <div class="resetrow"><span><span id="scenehint">이 필터의 값은 따로 기억됩니다</span><br><span id="res"></span></span><button id="reset" type="button">기본값으로</button></div>
   </div>
   <div class="panel" id="filterpanel" hidden>
     <div id="scenes" role="group" aria-label="촬영 대상"></div>
@@ -365,7 +365,8 @@ if(!SCENES[state.scene]) state.scene="person";
 if(!FILTERS.some(f=>f.id===state.f)) state.f="milk";
 if(!state.per) state.per={}; if(!state.last) state.last={};
 // 조절값은 "장면:필터" 조합마다 따로 기억, 없으면 장면 기본값
-const adj=fid=>state.per[state.scene+":"+fid]||SCENES[state.scene].def;
+// CSSgram 필터는 원본 그대로 보이도록 기본 강도 100
+const adj=fid=>state.per[state.scene+":"+fid]||(FILTERS.find(f=>f.id===fid).gram?{...SCENES[state.scene].def,k:100}:SCENES[state.scene].def);
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
 let holding=false,mode="none",video=null,stream=null,dirty=true;
 
@@ -471,6 +472,8 @@ async function startCam(){
     if(!video){video=document.createElement("video");video.playsInline=true;video.muted=true;video.setAttribute("playsinline","");}
     video.srcObject=stream;await video.play();
     mode="cam";$("msg").hidden=true;
+    // 실제로 받은 카메라 해상도를 조절 패널에 표시 (화질 확인용)
+    setTimeout(()=>{$("res").textContent=video.videoWidth?`카메라 ${video.videoWidth}×${video.videoHeight}`:"";},800);
   }catch(e){
     showMsg("카메라를 켤 수 없습니다.<br>설정 → Safari → 카메라에서 허용으로 바꾸거나,<br>아래 앨범 버튼으로 사진을 불러오세요.",{label:"다시 시도",run:startCam});
     if(mode!=="photo") loadSample();
