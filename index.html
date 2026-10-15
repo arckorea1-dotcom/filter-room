@@ -27,8 +27,16 @@ body{background:var(--bg);color:var(--fg);font:14px -apple-system,"Apple SD Goth
 .grp{display:flex;gap:8px;justify-self:start}.grp.end{justify-self:end}
 .side[aria-expanded="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 #strip::-webkit-scrollbar{display:none}
-.fx{flex:0 0 auto;border:1px solid var(--line);background:var(--panel);color:var(--muted);font:500 13px inherit;padding:7px 12px;border-radius:999px;cursor:pointer}
-.fx[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.fx{flex:0 0 auto;width:60px;display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:none;color:var(--muted);font:500 11px inherit;padding:0;cursor:pointer}
+.fx canvas{width:56px;height:56px;object-fit:cover;border-radius:10px;border:2px solid transparent;background:var(--panel);transform:scaleY(-1);display:block}
+.fx span{max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fx[aria-pressed="true"]{color:var(--fg)}
+.fx[aria-pressed="true"] canvas{border-color:var(--accent)}
+#grid{position:absolute;display:grid;grid-template:repeat(3,1fr)/repeat(3,1fr);pointer-events:none}
+#grid i{border-right:1px solid rgba(255,255,255,.45);border-bottom:1px solid rgba(255,255,255,.45)}
+#grid i:nth-child(3n){border-right:0}#grid i:nth-child(n+7){border-bottom:0}
+#t-grid{position:absolute;right:12px;top:10px;font:600 12px inherit;background:rgba(0,0,0,.5);color:var(--fg);border:0;padding:6px 12px;border-radius:999px;cursor:pointer}
+#t-grid[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
 #controls{display:grid;gap:2px;padding:10px 16px}
 .row{display:grid;grid-template-columns:62px 1fr 30px;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
 .row output{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg)}
@@ -62,7 +70,9 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <div id="flash"></div>
   <div id="msg" hidden></div>
   <div id="rectime" hidden></div>
+  <div id="grid" hidden><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
   <div id="curname"></div>
+  <button id="t-grid" type="button" aria-pressed="false">격자</button>
   <div id="panels">
   <div class="panel" id="controls" hidden>
   <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
@@ -327,7 +337,7 @@ const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(
 let holding=false,mode="none",video=null,stream=null,dirty=true;
 
 function render(){
-  const s=state, p=FILTERS.find(f=>f.id===s.f).p||{}, sm=s.sm/100, wr=s.wr/100;
+  const s=state, sm=s.sm/100, wr=s.wr/100;
   if(sm>0||wr>0){
     const big=Math.max(W,H), r1=big/240/4, r2=big/4/70/4;
     pass(P.blur,srcTex,T.a,[r1/W,0]); pass(P.blur,T.a.t,T.b,[0,r1/H]);
@@ -335,17 +345,23 @@ function render(){
     const qw=T.q1.w,qh=T.q1.h;
     for(let i=0;i<2;i++){pass(P.blur,T.q1.t,T.q2,[r2/qw,0]);pass(P.blur,T.q2.t,T.q1,[0,r2/qh]);}
   }
+  finalPass(s.f,null);
+}
+// 최종 셰이더 1회: vp가 없으면 화면 전체, 있으면 미리보기 아틀라스의 한 칸에 그림
+function finalPass(fid,vp){
+  const s=state, F=FILTERS.find(x=>x.id===fid), p=F.p||{}, sm=s.sm/100, wr=s.wr/100;
+  const RW=vp?vp.w:W, RH=vp?vp.h:H;
   const u=P.fin.u;gl.useProgram(P.fin.p);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,vp?vp.f:null);
+  if(vp) gl.viewport(vp.x,vp.y,vp.w,vp.h); else gl.viewport(0,0,W,H);
   [[srcTex,"S"],[T.b.t,"B"],[T.q1.t,"L"]].forEach(([t,n],i)=>{gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);gl.uniform1i(u[n],i);});
   const f=(n,v)=>gl.uniform1f(u[n],v);
-  f("uMirror",mode==="cam"&&s.facing==="user"?1:0); f("uOrig",holding?1:0);
+  f("uMirror",mode==="cam"&&s.facing==="user"?1:0); f("uOrig",holding&&!vp?1:0);
   f("uSm",sm); f("uWr",wr); f("uK",s.k/100); f("uBr",s.br/100);
   f("uExp",p.exp||0); f("uCon",p.con||0); f("uSat",p.sat||0); f("uTemp",p.temp||0); f("uTint",p.tint||0);
   f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
-  gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,W,H);
+  gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,RW,RH);
   gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2);
-  const F=FILTERS.find(x=>x.id===s.f);
   f("uG",F.g?1:0);
   if(F.g){
     gl.uniformMatrix3fv(u["uFM[0]"],false,F.g.mat); gl.uniform3fv(u["uFB[0]"],F.g.off);
@@ -353,8 +369,8 @@ function render(){
       f("uT"+i,l?l.t:0); if(!l) return;
       f("uM"+i,l.m); f("uN"+i,l.n); f("uOp"+i,l.o);
       // 원형 그라데이션 반지름 = 중심에서 가장 먼 모서리까지 거리(px)
-      const cx=l.cen[0]*W, cy=l.cen[1]*H;
-      f("uFar"+i,Math.max(Math.hypot(cx,cy),Math.hypot(W-cx,cy),Math.hypot(cx,H-cy),Math.hypot(W-cx,H-cy)));
+      const cx=l.cen[0]*RW, cy=l.cen[1]*RH;
+      f("uFar"+i,Math.max(Math.hypot(cx,cy),Math.hypot(RW-cx,cy),Math.hypot(cx,RH-cy),Math.hypot(RW-cx,RH-cy)));
       gl.uniform2f(u["uCen"+i],l.cen[0],l.cen[1]); gl.uniform3f(u["uP"+i],...l.p);
       l.c.forEach((c,j)=>gl.uniform4f(u["uC"+i+j],...c));
     });
@@ -369,7 +385,43 @@ function loop(){
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
     render();
   }else if(mode==="photo"&&dirty){dirty=false;render();}
+  if(mode!=="none"){
+    fitGrid();
+    const now=performance.now();
+    if(!$("strip").hidden&&now-lastThumb>700){lastThumb=now;updateThumbs();}
+  }
   requestAnimationFrame(loop);
+}
+
+// ── 필터 미리보기 썸네일: 37개를 아틀라스 1장에 그린 뒤 한 번에 읽어 각 버튼에 나눠 그림 ──
+let atlas=null,lastThumb=0;
+const atlasCv=document.createElement("canvas"),atlasCtx=atlasCv.getContext("2d");
+function updateThumbs(){
+  const s=112/Math.max(W,H), tw=Math.max(1,Math.round(W*s)), th=Math.max(1,Math.round(H*s)), cols=8, rows=Math.ceil(FILTERS.length/cols);
+  if(!atlas||atlas.tw!==tw||atlas.th!==th){
+    if(atlas){gl.deleteTexture(atlas.t);gl.deleteFramebuffer(atlas.f);}
+    atlas=Object.assign(target(cols*tw,rows*th),{tw,th,cols});
+    atlas.px=new Uint8Array(atlas.w*atlas.h*4);
+    atlasCv.width=atlas.w;atlasCv.height=atlas.h;
+  }
+  FILTERS.forEach((F,i)=>finalPass(F.id,{f:atlas.f,x:(i%cols)*tw,y:Math.floor(i/cols)*th,w:tw,h:th}));
+  gl.readPixels(0,0,atlas.w,atlas.h,gl.RGBA,gl.UNSIGNED_BYTE,atlas.px);
+  atlasCtx.putImageData(new ImageData(new Uint8ClampedArray(atlas.px.buffer),atlas.w,atlas.h),0,0);
+  // GL은 아래에서 위로 저장되므로 썸네일 캔버스는 CSS로 상하 반전
+  document.querySelectorAll(".fx canvas").forEach((c,i)=>{
+    if(c.width!==tw){c.width=tw;c.height=th;}
+    c.getContext("2d").drawImage(atlasCv,(i%cols)*tw,Math.floor(i/cols)*th,tw,th,0,0,tw,th);
+  });
+}
+
+// ── 격자: 화면에 보이는 사진 영역에 맞춰 3×3 ──
+let gridKey="";
+function fitGrid(){
+  const g=$("grid");if(g.hidden) return;
+  const sw=stage.clientWidth,sh=stage.clientHeight,key=sw+"x"+sh+"x"+W+"x"+H;
+  if(key===gridKey) return; gridKey=key;
+  const k=Math.min(sw/W,sh/H),w=W*k,h=H*k;
+  Object.assign(g.style,{width:w+"px",height:h+"px",left:(sw-w)/2+"px",top:(sh-h)/2+"px"});
 }
 
 // ── 카메라 ──
@@ -492,7 +544,8 @@ $("save").onclick=async()=>{
 const strip=$("strip");
 for(const f of FILTERS){
   if(f.id==="g-1977"){const sep=document.createElement("span");sep.className="sep";sep.textContent="CSSgram";strip.append(sep);}
-  const b=document.createElement("button");b.className="fx";b.type="button";b.textContent=f.name;
+  const b=document.createElement("button");b.className="fx";b.type="button";
+  const cv=document.createElement("canvas"),nm=document.createElement("span");nm.textContent=f.name;b.append(cv,nm);
   b.setAttribute("aria-pressed",f.id===state.f);
   b.onclick=()=>{state.f=f.id;save();strip.querySelectorAll(".fx").forEach(x=>x.setAttribute("aria-pressed",x===b));dirty=true;};
   strip.append(b);
@@ -505,6 +558,7 @@ for(const id of ["k","wr","sm","sh","br"]){
 function togglePanel(id){
   const open=$(id).hidden;
   $(id).hidden=!open;$("t-"+id).setAttribute("aria-expanded",open);
+  if(id==="strip"&&open) lastThumb=0; // 열자마자 썸네일 갱신
 }
 $("t-strip").onclick=()=>togglePanel("strip");
 $("t-controls").onclick=()=>togglePanel("controls");
@@ -513,7 +567,11 @@ showName();
 strip.addEventListener("click",showName);
 // 미리보기를 누르고 있는 동안 원본 보기 (패널은 열린 채 유지)
 const stage=$("stage");
-stage.addEventListener("pointerdown",e=>{if(e.target.closest(".panel")) return;holding=true;dirty=true;});
+stage.addEventListener("pointerdown",e=>{if(e.target.closest(".panel,#t-grid")) return;holding=true;dirty=true;});
+// 격자 켜고 끄기 (화면에만 보이고 사진·동영상에는 찍히지 않음)
+function setGrid(on){state.grid=on;save();$("grid").hidden=!on;$("t-grid").setAttribute("aria-pressed",on);gridKey="";}
+$("t-grid").onclick=()=>setGrid(!state.grid);
+setGrid(!!state.grid);
 for(const ev of ["pointerup","pointercancel","pointerleave"]) stage.addEventListener(ev,()=>{holding=false;dirty=true;});
 
 // ── 시작 ──
