@@ -91,6 +91,8 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
   <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
+  <label class="row"><span>채도</span><input id="sa" type="range" min="-50" max="50" value="0"><output id="sav"></output></label>
+  <label class="row"><span>대비</span><input id="co" type="range" min="-50" max="50" value="0"><output id="cov"></output></label>
   <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
   <div class="resetrow"><span><span id="scenehint">이 필터의 값은 따로 기억됩니다</span><br><span id="res"></span></span><button id="reset" type="button">기본값으로</button></div>
   </div>
@@ -138,10 +140,10 @@ const FILTERS=[
 // ── 촬영 대상(장면): 고르면 조절 기본값이 바뀌고, 어울리는 필터를 앞에 추천 ──
 // 인물 외에는 주름·피부 보정을 끔 (음식·나무·베이지 제품이 피부색으로 오인돼 뭉개지는 것 방지)
 const SCENES={
-  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
-  food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,br:0},rec:["food","golden","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
-  object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,br:0},rec:["product","clear","cool","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
-  scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,br:0},rec:["clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
+  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,sa:0,co:0,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
+  food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,sa:18,co:10,br:0},rec:["food","golden","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
+  object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,sa:10,co:10,br:0},rec:["product","clear","cool","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
+  scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,sa:18,co:12,br:0},rec:["clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
 };
 
 // ── CSSgram 필터 26종 ──
@@ -229,7 +231,7 @@ const COPY=`precision highp float;varying vec2 v;uniform sampler2D T;void main()
 // 최종: 피부 보정(작은 블러) → 주름 완화(큰 블러 평균보다 어두운 피부만 채움) → 색감 필터 → 강도·밝기
 const FINAL=`precision highp float;varying vec2 v;
 uniform sampler2D S,B,L;uniform float uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
-uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp;
+uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp,uUS,uUC;
 const vec3 LU=vec3(.299,.587,.114);
 float sat01(float x){return clamp(x,0.,1.);}
 // ── CSS 블렌드 모드 (W3C Compositing 명세) ──
@@ -306,7 +308,11 @@ void main(){
  }
  if(uVig>0.){vec2 d=v-.5;x*=1.-uVig*pow(dot(d,d)/.5,1.4);}
  if(uGrain>0.){x+=(fract(sin(dot(v*uRes+uSeed,vec2(12.9898,78.233)))*43758.5453)-.5)*uGrain;}
- gl_FragColor=vec4(clamp(mix(o,x,uK)*exp2(uBr),0.,1.),1.);
+ // 공통 조절: 밝기 → 대비 → 채도 (필터 위에 덧입힘)
+ vec3 r=mix(o,x,uK)*exp2(uBr);
+ r=(r-.5)*(1.+uUC)+.5;
+ float lr=dot(r,LU); r=vec3(lr)+(r-vec3(lr))*(1.+uUS);
+ gl_FragColor=vec4(clamp(r,0.,1.),1.);
 }`;
 
 function prog(fs){
@@ -366,7 +372,11 @@ if(!FILTERS.some(f=>f.id===state.f)) state.f="milk";
 if(!state.per) state.per={}; if(!state.last) state.last={};
 // 조절값은 "장면:필터" 조합마다 따로 기억, 없으면 장면 기본값
 // CSSgram 필터는 원본 그대로 보이도록 기본 강도 100
-const adj=fid=>state.per[state.scene+":"+fid]||(FILTERS.find(f=>f.id===fid).gram?{...SCENES[state.scene].def,k:100}:SCENES[state.scene].def);
+// 저장값이 예전 버전이라 일부 항목이 없어도 기본값으로 채움
+const adj=fid=>{
+  const d=SCENES[state.scene].def, base=FILTERS.find(f=>f.id===fid).gram?{...d,k:100}:d;
+  return {...base,...(state.per[state.scene+":"+fid]||{})};
+};
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
 let holding=false,mode="none",video=null,stream=null,dirty=true;
 
@@ -396,7 +406,7 @@ function finalPass(fid,vp){
   f("uExp",p.exp||0); f("uCon",p.con||0); f("uSat",p.sat||0); f("uTemp",p.temp||0); f("uTint",p.tint||0);
   f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
   gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,RW,RH);
-  gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2);
+  gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2); f("uUS",s.sa/100); f("uUC",s.co/100);
   f("uG",F.g?1:0);
   if(F.g){
     gl.uniformMatrix3fv(u["uFM[0]"],false,F.g.mat); gl.uniform3fv(u["uFB[0]"],F.g.off);
@@ -588,7 +598,7 @@ $("save").onclick=async()=>{
 };
 
 // ── 필터 띠와 슬라이더 ──
-const strip=$("strip"), SL=["k","wr","sm","sh","br"];
+const strip=$("strip"), SL=["k","wr","sm","sh","sa","co","br"];
 // 슬라이더를 현재 필터의 값으로 맞춤
 function syncSliders(){const a=adj(state.f);for(const id of SL){$(id).value=a[id];$(id+"v").textContent=a[id];}}
 // 필터 띠: 현재 장면의 추천 필터 → "그 밖의 필터" 순서로 다시 만듦
