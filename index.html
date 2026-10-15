@@ -51,7 +51,8 @@ body{background:#000;color:var(--fg);font:14px -apple-system,"Apple SD Gothic Ne
 #grid i:nth-child(3n){border-right:0}#grid i:nth-child(n+7){border-bottom:0}
 #t-grid{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top,0px));font:600 12px inherit;background:rgba(0,0,0,.5);color:var(--fg);border:0;padding:6px 12px;border-radius:999px;cursor:pointer}
 #t-grid[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
-#controls{display:grid;gap:2px;padding:10px 16px}
+#controls{display:grid;gap:2px;padding:10px 16px;max-height:44vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.grouplab{font-size:10px;color:var(--muted);padding:4px 0 2px;border-top:1px solid var(--line);margin-top:4px}
 .resetrow{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);padding-top:4px}
 #reset{background:none;border:1px solid var(--line);color:var(--fg);font:500 12px inherit;padding:5px 10px;border-radius:999px;cursor:pointer}
 .row{display:grid;grid-template-columns:62px 1fr 30px;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
@@ -98,10 +99,15 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
   <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
-  <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
-  <label class="row"><span>채도</span><input id="sa" type="range" min="-50" max="50" value="0"><output id="sav"></output></label>
+  <div class="grouplab">아이폰 사진 앱 [조절]과 같은 순서</div>
+  <label class="row"><span>노출</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
+  <label class="row"><span>휘도</span><input id="lu" type="range" min="-100" max="100" value="0"><output id="luv"></output></label>
+  <label class="row"><span>하이라이트</span><input id="hl" type="range" min="-100" max="100" value="0"><output id="hlv"></output></label>
+  <label class="row"><span>그림자</span><input id="sd" type="range" min="-100" max="100" value="0"><output id="sdv"></output></label>
   <label class="row"><span>대비</span><input id="co" type="range" min="-50" max="50" value="0"><output id="cov"></output></label>
-  <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
+  <label class="row"><span>밝기</span><input id="gm" type="range" min="-100" max="100" value="0"><output id="gmv"></output></label>
+  <label class="row"><span>채도</span><input id="sa" type="range" min="-50" max="50" value="0"><output id="sav"></output></label>
+  <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
   <div class="resetrow"><span><span id="scenehint">이 필터의 값은 따로 기억됩니다</span><br><span id="res"></span></span><button id="reset" type="button">기본값으로</button></div>
   </div>
   <div class="panel" id="filterpanel" hidden>
@@ -257,7 +263,7 @@ const COPY=`precision highp float;varying vec2 v;uniform sampler2D T;void main()
 // 최종: 피부 보정(작은 블러) → 주름 완화(큰 블러 평균보다 어두운 피부만 채움) → 색감 필터 → 강도·밝기
 const FINAL=`precision highp float;varying vec2 v;
 uniform sampler2D S,B,L;uniform float uVib,uGam,uBril,uShd,uHlt,uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
-uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp,uUS,uUC;
+uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp,uUS,uUC,uUG,uULu,uUSd,uUHl;
 const vec3 LU=vec3(.299,.587,.114);
 float sat01(float x){return clamp(x,0.,1.);}
 // ── CSS 블렌드 모드 (W3C Compositing 명세) ──
@@ -344,6 +350,10 @@ void main(){
  if(uGrain>0.){x+=(fract(sin(dot(v*uRes+uSeed,vec2(12.9898,78.233)))*43758.5453)-.5)*uGrain;}
  // 공통 조절: 밝기 → 대비 → 채도 (필터 위에 덧입힘)
  vec3 r=mix(o,x,uK)*exp2(uBr);
+ // 사용자 톤 조절 (필터 레시피와 같은 방식): 밝기(중간톤) → 휘도·하이라이트·그림자
+ r=pow(max(r,0.),vec3(1./(1.+uUG*.6)));
+ float L1=dot(r,LU),s1=uUSd+uULu*.6,h1=uUHl-uULu*.2;
+ r+=vec3(s1*.30*(1.-L1)*(1.-L1)+h1*.15*L1*L1);
  r=(r-.5)*(1.+uUC)+.5;
  float lr=dot(r,LU); r=vec3(lr)+(r-vec3(lr))*(1.+uUS);
  gl_FragColor=vec4(clamp(r,0.,1.),1.);
@@ -410,7 +420,7 @@ if(!state.per) state.per={}; if(!state.last) state.last={};
 const adj=fid=>{
   const F=FILTERS.find(f=>f.id===fid), d=SCENES[state.scene].def;
   // CSSgram·아이폰 레시피는 원래 수치 그대로 보이도록 강도 100, 레시피별 선명도 등은 adj로 덮어씀
-  const base={...d,...(F.gram||F.ios?{k:100}:{}),...(F.adj||{})};
+  const base={lu:0,hl:0,sd:0,gm:0,...d,...(F.gram||F.ios?{k:100}:{}),...(F.adj||{})};
   return {...base,...(state.per[state.scene+":"+fid]||{})};
 };
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
@@ -443,7 +453,7 @@ function finalPass(fid,vp){
   f("uVib",p.vib||0); f("uGam",p.gam||0); f("uBril",p.bril||0); f("uShd",p.shd||0); f("uHlt",p.hlt||0);
   f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
   gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,RW,RH);
-  gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2); f("uUS",s.sa/100); f("uUC",s.co/100);
+  gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2); f("uUS",s.sa/100); f("uUC",s.co/100); f("uUG",s.gm/100); f("uULu",s.lu/100); f("uUSd",s.sd/100); f("uUHl",s.hl/100);
   f("uG",F.g?1:0);
   if(F.g){
     gl.uniformMatrix3fv(u["uFM[0]"],false,F.g.mat); gl.uniform3fv(u["uFB[0]"],F.g.off);
@@ -642,7 +652,7 @@ $("save").onclick=async()=>{
 };
 
 // ── 필터 띠와 슬라이더 ──
-const strip=$("strip"), SL=["k","wr","sm","sh","sa","co","br"];
+const strip=$("strip"), SL=["k","wr","sm","br","lu","hl","sd","co","gm","sa","sh"];
 // 슬라이더를 현재 필터의 값으로 맞춤
 function syncSliders(){const a=adj(state.f);for(const id of SL){$(id).value=a[id];$(id+"v").textContent=a[id];}}
 // 필터 띠: 현재 장면의 추천 필터 → "그 밖의 필터" 순서로 다시 만듦
