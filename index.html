@@ -175,7 +175,7 @@ const FILTERS=[
 // ── 촬영 대상(장면): 고르면 조절 기본값이 바뀌고, 어울리는 필터를 앞에 추천 ──
 // 인물 외에는 주름·피부 보정을 끔 (음식·나무·베이지 제품이 피부색으로 오인돼 뭉개지는 것 방지)
 const SCENES={
-  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,sa:0,co:0,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","unyellow","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
+  person:{label:"인물",def:{k:80,wr:60,sm:35,sh:45,sa:0,co:0,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","unyellow","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
   food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,sa:18,co:25,br:0},rec:["food","golden","unyellow","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
   object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,sa:10,co:25,br:0},rec:["product","jewel","clear","cool","unyellow","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
   scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,sa:18,co:30,br:0},rec:["fresh","cloudy","clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
@@ -317,9 +317,12 @@ void main(){
  if(skin>0.){
   vec3 b=texture2D(B,uv).rgb,l=texture2D(L,uv).rgb;
   float edge=sat01(1.-abs(Y-dot(b,LU))/((14.+22.*uSm)/255.));
-  o+=(b-c)*uSm*skin*edge*.92+uSm*skin*7./255.;
-  float dk=dot(l,LU)-Y;
-  if(dk>0.){o+=(l-c)*uWr*skin*sat01(dk/(28./255.))*sat01((75./255.-dk)/(25./255.));}
+  // 피부 보정: 잡티만 흐리게, 최대 60%까지만 섞어 피부 결(질감)을 남김
+  o+=(b-c)*uSm*skin*edge*.6+uSm*skin*5./255.;
+  // 주름 완화: "넓은 그늘"(작은 블러 b가 큰 블러 l보다 어두운 곳)만 밝혀서 채움.
+  // 픽셀 대신 b와 l의 차이만 더하므로 모공·피부 결 같은 미세한 디테일은 그대로 남아 뭉개지지 않음
+  float dk=dot(l,LU)-dot(b,LU);
+  if(dk>0.){o+=(l-b)*uWr*skin*sat01(dk/(20./255.))*sat01((60./255.-dk)/(20./255.));}
  }
  // 선명도: 라플라시안 샤프닝. 피부는 25%만 적용해 눈·머리카락·윤곽만 또렷하게
  if(uSharp>0.){
@@ -707,7 +710,7 @@ for(const id of SL){
 }
 // 현재 장면·필터 값을 기본값으로 되돌리기
 $("reset").onclick=()=>{delete state.per[state.scene+":"+state.f];save();syncSliders();dirty=true;};
-$("ver").textContent="· 버전 10.15-8";
+$("ver").textContent="· 버전 10.15-9";
 // 필터·조절 패널 열고 닫기 (각각 따로, 둘 다 열어 두고 화면을 보며 조정 가능)
 function togglePanel(id){
   const open=$(id).hidden;
