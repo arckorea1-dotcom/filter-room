@@ -41,6 +41,8 @@ body{background:#000;color:var(--fg);font:14px -apple-system,"Apple SD Gothic Ne
 #strip::-webkit-scrollbar{display:none}
 .fx{flex:0 0 auto;width:60px;display:flex;flex-direction:column;align-items:center;gap:4px;border:0;background:none;color:var(--muted);font:500 11px inherit;padding:0;cursor:pointer}
 .fx canvas{width:56px;height:56px;object-fit:cover;border-radius:10px;border:2px solid transparent;background:var(--panel);transform:scaleY(-1);display:block}
+.fx{position:relative}
+.fx .badge{position:absolute;left:2px;top:2px;max-width:54px;word-break:keep-all;text-align:left;font-size:9px;font-weight:700;line-height:1.25;font-style:normal;background:var(--accent);color:var(--accent-ink);padding:1px 4px;border-radius:6px 6px 6px 2px;pointer-events:none}
 .fx span{max-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fx[aria-pressed="true"]{color:var(--fg)}
 .fx[aria-pressed="true"] canvas{border-color:var(--accent)}
@@ -154,12 +156,12 @@ const FILTERS=[
   // ── 아이폰 사진 앱 [편집 → 조절] 레시피 (SNS 유행 수치를 이 앱의 보정으로 근사) ──
   // 아이폰 값(-100~100)을 100으로 나눠 사용. bril 휘도, shd 그림자, hlt 하이라이트, gam 밝기(중간톤)
   // 대비는 이 앱의 대비가 더 강하게 작동해 ×0.4, 레시피의 선명도는 필터별 선명도 기본값(adj.sh)으로 반영
-  {id:"jewel",name:"주얼리",ios:1,p:{bril:.70,shd:.70,con:-.30*.4,gam:.53,temp:.08,tint:.10},adj:{sh:55}},
-  {id:"fresh",name:"청량풍경",ios:1,p:{gam:.30,con:.10*.4,sat:.20,hlt:-.10,shd:.30},adj:{sh:50}},
-  {id:"unyellow",name:"노랑빼기",ios:1,p:{bril:-.15,hlt:.70,gam:.35,sat:.12,temp:-.70,tint:.40}},
+  {id:"jewel",name:"주얼리",ios:1,badge:"주얼리·제품",p:{bril:.70,shd:.70,con:-.30*.4,gam:.53,temp:.08,tint:.10},adj:{sh:55}},
+  {id:"fresh",name:"청량풍경",ios:1,badge:"맑은 날",p:{gam:.30,con:.10*.4,sat:.20,hlt:-.10,shd:.30},adj:{sh:50}},
+  {id:"unyellow",name:"노랑빼기",ios:1,badge:"노란끼 제거",p:{bril:-.15,hlt:.70,gam:.35,sat:.12,temp:-.70,tint:.40}},
   // 흐린날 보정 (네이버 블로그 레시피): 노출은 마지막에 0으로 되돌리므로 생략, 휘도는 "원하는 만큼"이라 +30으로 가정
   // 선명도·명료도는 "올림"이라고만 되어 있어 선명도 기본값 60으로 반영, 색 선명도(vib)는 생동감
-  {id:"cloudy",name:"흐린날",ios:1,p:{bril:.30,hlt:-.27,shd:.46,con:-.27*.4,gam:.14,sat:.20,vib:.12,temp:.07},adj:{sh:60}},
+  {id:"cloudy",name:"흐린날",ios:1,badge:"흐린 날",p:{bril:.30,hlt:-.27,shd:.46,con:-.27*.4,gam:.14,sat:.20,vib:.12,temp:.07},adj:{sh:60}},
 ];
 // ── 촬영 대상(장면): 고르면 조절 기본값이 바뀌고, 어울리는 필터를 앞에 추천 ──
 // 인물 외에는 주름·피부 보정을 끔 (음식·나무·베이지 제품이 피부색으로 오인돼 뭉개지는 것 방지)
@@ -654,6 +656,8 @@ function buildStrip(){
     const f=FILTERS.find(x=>x.id===id);
     const b=document.createElement("button");b.className="fx";b.type="button";b.dataset.id=id;
     const cv=document.createElement("canvas"),nm=document.createElement("span");nm.textContent=f.name;b.append(cv,nm);
+    // 목적 배지: 썸네일 왼쪽 위 (레시피 필터)
+    if(f.badge){const bg=document.createElement("em");bg.className="badge";bg.textContent=f.badge;b.append(bg);}
     b.setAttribute("aria-pressed",id===state.f);
     b.onclick=()=>pickFilter(id);
     strip.append(b);
