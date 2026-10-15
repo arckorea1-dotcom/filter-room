@@ -51,7 +51,10 @@ body{background:#000;color:var(--fg);font:14px -apple-system,"Apple SD Gothic Ne
 #grid i:nth-child(3n){border-right:0}#grid i:nth-child(n+7){border-bottom:0}
 #t-grid{position:absolute;right:12px;top:calc(8px + env(safe-area-inset-top,0px));font:600 12px inherit;background:rgba(0,0,0,.5);color:var(--fg);border:0;padding:6px 12px;border-radius:999px;cursor:pointer}
 #t-grid[aria-pressed="true"]{background:var(--fg);color:var(--bg)}
-#controls{display:grid;gap:2px;padding:10px 16px;max-height:56vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#controls{display:grid;gap:2px;padding:10px 16px;max-height:60vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.fxinfo{font-size:11px;line-height:1.5;color:var(--fg);padding:2px 0 4px}
+.fxinfo b{color:var(--accent);font-weight:700;margin-right:4px}
+.fxinfo i{display:inline-block;width:9px;height:9px;border-radius:2px;vertical-align:-1px;margin:0 2px;border:1px solid var(--line)}
 .grouplab{font-size:10px;color:var(--muted);padding:4px 0 2px;border-top:1px solid var(--line);margin-top:4px}
 .resetrow{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;color:var(--muted);padding-top:4px}
 #reset{background:none;border:1px solid var(--line);color:var(--fg);font:500 12px inherit;padding:5px 10px;border-radius:999px;cursor:pointer}
@@ -99,7 +102,8 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
   <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
-  <div class="grouplab">아이폰 사진 앱 [조절]과 같은 순서</div>
+  <div class="fxinfo"><b>필터 고유 수치</b> <span id="fxinfo"></span></div>
+  <div class="grouplab">추가 조절 (필터 위에 덧입힘) · 아이폰 사진 앱 [조절]과 같은 순서</div>
   <label class="row"><span>노출</span><input id="br" type="range" min="-100" max="100" value="0"><output id="brv"></output></label>
   <label class="row"><span>휘도</span><input id="lu" type="range" min="-100" max="100" value="0"><output id="luv"></output></label>
   <label class="row"><span>하이라이트</span><input id="hl" type="range" min="-100" max="100" value="0"><output id="hlv"></output></label>
@@ -673,7 +677,30 @@ $("save").onclick=async()=>{
 // ── 필터 띠와 슬라이더 ──
 const strip=$("strip"), SL=["k","wr","sm","br","lu","hl","sd","co","gm","bp","sa","vi","wa","ti","sh","df"];
 // 슬라이더를 현재 필터의 값으로 맞춤
-function syncSliders(){const a=adj(state.f);for(const id of SL){$(id).value=a[id];$(id+"v").textContent=a[id];}}
+// 필터 자체에 들어 있는 수치를 사람이 읽을 수 있게 표시 (슬라이더와 별개로 적용됨)
+const BM_KO={multiply:"곱하기",screen:"스크린",overlay:"오버레이",darken:"어둡게",lighten:"밝게","color-dodge":"닷지","color-burn":"번","soft-light":"소프트라이트",exclusion:"제외",hue:"색상",color:"색"};
+function describe(F){
+  const pct=v=>(v>0?"+":"")+Math.round(v*100);
+  if(F.ios) return "레시피 수치가 아래 슬라이더에 그대로 입력되어 있습니다";
+  if(F.g){
+    const op={c:"대비",b:"밝기",s:"채도",p:"세피아",g:"흑백",h:"색상회전"};
+    const fs=F.g.f.map(([o,a])=>o==="h"?`${op[o]} ${a}°`:o==="p"||o==="g"?`${op[o]} ${Math.round(a*100)}%`:`${op[o]} ${Math.round(a*100)}%`);
+    const ls=F.g.L.filter(Boolean).map(l=>{const sw=l.s.map(([r,g,b,a])=>`<i style="background:rgba(${r},${g},${b},${a})"></i>`).join("");
+      const kind=l.t===1?"단색":l.t===4?"원형 그라데이션":"그라데이션";
+      return `${kind}${sw} ${BM_KO[l.m]}${l.o<1?" "+Math.round(l.o*100)+"%":""}`;});
+    return [...fs,...ls].join(" · ")+" <span style=\"color:var(--muted)\">(CSSgram 원본, 100%=변화 없음)</span>";
+  }
+  const p=F.p||{}, out=[];
+  if(p.exp) out.push("노출 "+pct(p.exp)); if(p.con) out.push("대비 "+pct(p.con)); if(p.sat) out.push("채도 "+pct(p.sat));
+  if(p.temp) out.push("색온도 "+pct(p.temp)); if(p.tint) out.push("틴트 "+pct(p.tint)); if(p.fade) out.push("페이드 "+pct(p.fade));
+  if(p.roll) out.push("하이라이트 눌림 "+pct(p.roll));
+  if(p.sh) out.push(`그림자 색<i style="background:rgb(${128+p.sh[0]*4},${128+p.sh[1]*4},${128+p.sh[2]*4})"></i>`);
+  if(p.hi) out.push(`밝은 영역 색<i style="background:rgb(${128+p.hi[0]*4},${128+p.hi[1]*4},${128+p.hi[2]*4})"></i>`);
+  if(p.vig) out.push("비네팅 "+pct(p.vig)); if(p.grain) out.push("필름 입자 "+pct(p.grain)); if(p.mono) out.push("흑백");
+  return out.length?out.join(" · "):"보정 없음 (원본)";
+}
+function syncSliders(){
+  $("fxinfo").innerHTML=describe(FILTERS.find(f=>f.id===state.f));const a=adj(state.f);for(const id of SL){$(id).value=a[id];$(id+"v").textContent=a[id];}}
 // 필터 띠: 현재 장면의 추천 필터 → "그 밖의 필터" 순서로 다시 만듦
 function buildStrip(){
   strip.textContent="";
@@ -718,7 +745,7 @@ for(const id of SL){
 }
 // 현재 장면·필터 값을 기본값으로 되돌리기
 $("reset").onclick=()=>{delete state.per[state.scene+":"+state.f];save();syncSliders();dirty=true;};
-$("ver").textContent="· 버전 10.15-10";
+$("ver").textContent="· 버전 10.15-11";
 // 필터·조절 패널 열고 닫기 (각각 따로, 둘 다 열어 두고 화면을 보며 조정 가능)
 function togglePanel(id){
   const open=$(id).hidden;
