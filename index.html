@@ -151,14 +151,20 @@ const FILTERS=[
   // 음식·사물 전용: 따뜻하고 진한 음식 톤 / 흰색이 하얗게 남는 깔끔한 제품 톤
   {id:"food",name:"푸드",p:{exp:.06,con:.10,sat:.22,temp:.16,hi:[8,4,-2]}},
   {id:"product",name:"제품",p:{exp:.08,con:.10,sat:.04,temp:-.08}},
+  // ── 아이폰 사진 앱 [편집 → 조절] 레시피 (SNS 유행 수치를 이 앱의 보정으로 근사) ──
+  // 아이폰 값(-100~100)을 100으로 나눠 사용. bril 휘도, shd 그림자, hlt 하이라이트, gam 밝기(중간톤)
+  // 대비는 이 앱의 대비가 더 강하게 작동해 ×0.6, 레시피의 선명도는 필터별 선명도 기본값(adj.sh)으로 반영
+  {id:"jewel",name:"주얼리",ios:1,p:{bril:.70,shd:.70,con:-.30*.6,gam:.53,temp:.08,tint:.10},adj:{sh:55}},
+  {id:"fresh",name:"청량풍경",ios:1,p:{gam:.30,con:.10*.6,sat:.20,hlt:-.10,shd:.30},adj:{sh:50}},
+  {id:"unyellow",name:"노랑빼기",ios:1,p:{bril:-.15,hlt:.70,gam:.35,sat:.12,temp:-.70,tint:.40}},
 ];
 // ── 촬영 대상(장면): 고르면 조절 기본값이 바뀌고, 어울리는 필터를 앞에 추천 ──
 // 인물 외에는 주름·피부 보정을 끔 (음식·나무·베이지 제품이 피부색으로 오인돼 뭉개지는 것 방지)
 const SCENES={
-  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,sa:0,co:0,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
-  food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,sa:18,co:10,br:0},rec:["food","golden","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
-  object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,sa:10,co:10,br:0},rec:["product","clear","cool","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
-  scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,sa:18,co:12,br:0},rec:["clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
+  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,sa:0,co:0,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","unyellow","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
+  food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,sa:18,co:10,br:0},rec:["food","golden","unyellow","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
+  object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,sa:10,co:10,br:0},rec:["product","jewel","clear","cool","unyellow","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
+  scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,sa:18,co:12,br:0},rec:["fresh","clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
 };
 
 // ── CSSgram 필터 26종 ──
@@ -245,7 +251,7 @@ gl_FragColor=vec4(s,1.);}`;
 const COPY=`precision highp float;varying vec2 v;uniform sampler2D T;void main(){gl_FragColor=texture2D(T,v);}`;
 // 최종: 피부 보정(작은 블러) → 주름 완화(큰 블러 평균보다 어두운 피부만 채움) → 색감 필터 → 강도·밝기
 const FINAL=`precision highp float;varying vec2 v;
-uniform sampler2D S,B,L;uniform float uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
+uniform sampler2D S,B,L;uniform float uGam,uBril,uShd,uHlt,uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
 uniform vec3 uSh,uHi;uniform vec2 uRes,uTx;uniform float uSharp,uUS,uUC;
 const vec3 LU=vec3(.299,.587,.114);
 float sat01(float x){return clamp(x,0.,1.);}
@@ -317,6 +323,11 @@ void main(){
  x=o*vec3(1.+uTemp*.12+uTint*.03,1.-uTint*.08,1.-uTemp*.12+uTint*.03)*exp2(uExp);
  x=clamp((x-.5)*(1.+uCon)+.5,0.,1.);
  x=uFade+x*(1.-uFade-uRoll);
+ // 아이폰식 톤: 밝기(중간톤 감마) → 휘도(그림자↑ 하이라이트↓) + 그림자·하이라이트
+ x=pow(max(x,0.),vec3(1./(1.+uGam*.6)));
+ float L0=dot(x,LU), shd=uShd+uBril*.6, hlt=uHlt-uBril*.35;
+ x+=vec3(shd*.30*(1.-L0)*(1.-L0)+hlt*.22*L0*L0);
+ x=clamp(x,0.,1.);
  float Lm=dot(x,LU);
  x=mix(vec3(Lm)+(x-vec3(Lm))*(1.+uSat),vec3(Lm),uMono);
  x+=uSh/255.*(1.-Lm)*(1.-Lm)+uHi/255.*Lm*Lm;
@@ -389,7 +400,9 @@ if(!state.per) state.per={}; if(!state.last) state.last={};
 // CSSgram 필터는 원본 그대로 보이도록 기본 강도 100
 // 저장값이 예전 버전이라 일부 항목이 없어도 기본값으로 채움
 const adj=fid=>{
-  const d=SCENES[state.scene].def, base=FILTERS.find(f=>f.id===fid).gram?{...d,k:100}:d;
+  const F=FILTERS.find(f=>f.id===fid), d=SCENES[state.scene].def;
+  // CSSgram·아이폰 레시피는 원래 수치 그대로 보이도록 강도 100, 레시피별 선명도 등은 adj로 덮어씀
+  const base={...d,...(F.gram||F.ios?{k:100}:{}),...(F.adj||{})};
   return {...base,...(state.per[state.scene+":"+fid]||{})};
 };
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
@@ -419,6 +432,7 @@ function finalPass(fid,vp){
   f("uMirror",mode==="cam"&&state.facing==="user"?1:0); f("uOrig",holding&&!vp?1:0);
   f("uSm",sm); f("uWr",wr); f("uK",s.k/100); f("uBr",s.br/100);
   f("uExp",p.exp||0); f("uCon",p.con||0); f("uSat",p.sat||0); f("uTemp",p.temp||0); f("uTint",p.tint||0);
+  f("uGam",p.gam||0); f("uBril",p.bril||0); f("uShd",p.shd||0); f("uHlt",p.hlt||0);
   f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
   gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,RW,RH);
   gl.uniform2f(u.uTx,1/W,1/H); f("uSharp",s.sh/100*1.2); f("uUS",s.sa/100); f("uUC",s.co/100);
