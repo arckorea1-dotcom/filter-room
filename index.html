@@ -22,7 +22,10 @@ body{background:var(--bg);color:var(--fg);font:14px -apple-system,"Apple SD Goth
 /* 둘 다 열면 조절(위)과 필터(아래)가 겹치지 않고 쌓임 */
 #panels{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column}
 .panel{background:rgba(14,12,16,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
-#strip{display:flex;gap:8px;overflow-x:auto;padding:12px 16px;scrollbar-width:none}
+#strip{display:flex;gap:8px;overflow-x:auto;padding:8px 16px 12px;scrollbar-width:none}
+#scenes{display:flex;gap:6px;padding:10px 16px 0}
+#scenes button{flex:1;height:32px;border-radius:999px;border:1px solid var(--line);background:none;color:var(--muted);font:600 13px inherit;cursor:pointer}
+#scenes button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
 #curname{position:absolute;left:12px;top:10px;font:600 12px inherit;background:rgba(0,0,0,.5);color:var(--fg);padding:4px 10px;border-radius:999px;pointer-events:none}
 .grp{display:flex;gap:8px;justify-self:start}.grp.end{justify-self:end}
 .side[aria-expanded="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
@@ -84,7 +87,10 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
   <div class="resetrow"><span id="scenehint">이 필터의 값은 따로 기억됩니다</span><button id="reset" type="button">기본값으로</button></div>
   </div>
-  <div class="panel" id="strip" role="group" aria-label="필터" hidden></div>
+  <div class="panel" id="filterpanel" hidden>
+    <div id="scenes" role="group" aria-label="촬영 대상"></div>
+    <div id="strip" role="group" aria-label="필터"></div>
+  </div>
   </div>
 </div>
 <div id="modes" role="group" aria-label="촬영 모드"><button type="button" data-m="photo" aria-pressed="true">사진</button><button type="button" data-m="video" aria-pressed="false">동영상</button></div>
@@ -117,11 +123,17 @@ const FILTERS=[
   {id:"golden",name:"골든",p:{exp:.03,sat:.10,temp:.34,hi:[12,6,-6]}},
   {id:"mono",name:"흑백",p:{mono:1,con:.10,fade:.04}},
   // 음식·사물 전용: 따뜻하고 진한 음식 톤 / 흰색이 하얗게 남는 깔끔한 제품 톤
-  {id:"food",name:"푸드",scene:"obj",p:{exp:.06,con:.10,sat:.22,temp:.16,hi:[8,4,-2]}},
-  {id:"product",name:"제품",scene:"obj",p:{exp:.08,con:.10,sat:.04,temp:-.08}},
+  {id:"food",name:"푸드",p:{exp:.06,con:.10,sat:.22,temp:.16,hi:[8,4,-2]}},
+  {id:"product",name:"제품",p:{exp:.08,con:.10,sat:.04,temp:-.08}},
 ];
-// 음식·사물에 어울리는 CSSgram 필터: 선택하면 인물 보정(주름·피부)을 끄고 선명도를 올림
-const OBJ_GRAM=["Clarendon","Valencia","Rise","Lo-Fi","Gingham","Reyes","Lark","Inkwell","Moon"];
+// ── 촬영 대상(장면): 고르면 조절 기본값이 바뀌고, 어울리는 필터를 앞에 추천 ──
+// 인물 외에는 주름·피부 보정을 끔 (음식·나무·베이지 제품이 피부색으로 오인돼 뭉개지는 것 방지)
+const SCENES={
+  person:{label:"인물",def:{k:80,wr:70,sm:50,sh:40,br:0},rec:["milk","peach","clear","cream","blueberry","matt","film","cool","golden","mono","g-Aden","g-Stinson","g-Slumber","g-Mayfair","g-1977"]},
+  food:{label:"음식",def:{k:80,wr:0,sm:0,sh:70,br:0},rec:["food","golden","g-Clarendon","g-Valencia","g-Rise","g-Lo-Fi","g-Reyes","g-Gingham","cream"]},
+  object:{label:"사물",def:{k:80,wr:0,sm:0,sh:70,br:0},rec:["product","clear","cool","g-Lark","g-Clarendon","g-Gingham","g-Inkwell","g-Moon","mono"]},
+  scenery:{label:"배경",def:{k:85,wr:0,sm:0,sh:60,br:0},rec:["clear","g-Clarendon","g-Lark","g-Perpetua","g-Hudson","g-Nashville","g-X-Pro II","g-Walden","golden","film","cool"]},
+};
 
 // ── CSSgram 필터 26종 ──
 // 원본: https://github.com/una/CSSgram — The MIT License (MIT), Copyright (c) 2015 Una Kravets
@@ -159,13 +171,7 @@ const GRAM=[
   ["Willow",[["g",.5],["c",.95],["b",.9]],[null,solid("color",216,205,203)]],
   ["X-Pro II",[["p",.3]],[radial("color-burn",[[230,231,224,1,.4],[43,42,161,.6,1.1]])]],
 ];
-for(const [name,f,L] of GRAM) FILTERS.push({id:"g-"+name,name,g:{f,L},gram:true,scene:OBJ_GRAM.includes(name)?"obj":undefined});
-// 띠 순서: 인물 → 음식·사물 → 나머지 CSSgram
-const group=f=>f.scene==="obj"?1:f.gram?2:0;
-FILTERS.sort((a,b)=>group(a)-group(b));
-const GROUP_LABEL=["인물","음식·사물","CSSgram"];
-// 조절 기본값: 필터 종류별로 다르게, 사용자가 바꾼 값은 필터마다 따로 기억
-const DEF={person:{k:80,wr:70,sm:50,sh:40,br:0},obj:{k:80,wr:0,sm:0,sh:70,br:0}};
+for(const [name,f,L] of GRAM) FILTERS.push({id:"g-"+name,name,g:{f,L},gram:true});
 
 // CSS 필터 함수 → 3×3 행렬(행 우선)과 오프셋 (Filter Effects 명세의 계수)
 function cssMatrix([op,a]){
@@ -344,19 +350,20 @@ function pass(pr,inTex,out,dir){
 }
 
 // ── 상태 ──
-const state={f:"milk",per:{},facing:"user"};
+const state={scene:"person",f:"milk",per:{},last:{},facing:"user"};
 try{Object.assign(state,JSON.parse(localStorage.getItem("fr-cam")||"{}"));}catch(e){}
+if(!SCENES[state.scene]) state.scene="person";
 if(!FILTERS.some(f=>f.id===state.f)) state.f="milk";
-if(!state.per) state.per={};
-const sceneOf=fid=>FILTERS.find(f=>f.id===fid).scene==="obj"?"obj":"person";
-const adj=fid=>state.per[fid]||DEF[sceneOf(fid)];
+if(!state.per) state.per={}; if(!state.last) state.last={};
+// 조절값은 "장면:필터" 조합마다 따로 기억, 없으면 장면 기본값
+const adj=fid=>state.per[state.scene+":"+fid]||SCENES[state.scene].def;
 const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
 let holding=false,mode="none",video=null,stream=null,dirty=true;
 
 function render(){
   const s=state, a=adj(s.f);
   // 미리보기 띠가 열려 있으면 인물 필터 썸네일용으로 블러를 항상 계산
-  if(a.sm>0||a.wr>0||!$("strip").hidden){
+  if(a.sm>0||a.wr>0||!$("filterpanel").hidden){
     const big=Math.max(W,H), r1=big/240/4, r2=big/4/70/4;
     pass(P.blur,srcTex,T.a,[r1/W,0]); pass(P.blur,T.a.t,T.b,[0,r1/H]);
     pass(P.copy,srcTex,T.q1);
@@ -406,7 +413,7 @@ function loop(){
   if(mode!=="none"){
     fitGrid();
     const now=performance.now();
-    if(!$("strip").hidden&&now-lastThumb>700){lastThumb=now;updateThumbs();}
+    if(!$("filterpanel").hidden&&now-lastThumb>700){lastThumb=now;updateThumbs();}
   }
   requestAnimationFrame(loop);
 }
@@ -415,18 +422,20 @@ function loop(){
 let atlas=null,lastThumb=0;
 const atlasCv=document.createElement("canvas"),atlasCtx=atlasCv.getContext("2d");
 function updateThumbs(){
-  const s=112/Math.max(W,H), tw=Math.max(1,Math.round(W*s)), th=Math.max(1,Math.round(H*s)), cols=8, rows=Math.ceil(FILTERS.length/cols);
-  if(!atlas||atlas.tw!==tw||atlas.th!==th){
+  const btns=[...document.querySelectorAll(".fx")];
+  const s=112/Math.max(W,H), tw=Math.max(1,Math.round(W*s)), th=Math.max(1,Math.round(H*s)), cols=8, rows=Math.ceil(btns.length/cols);
+  if(!atlas||atlas.tw!==tw||atlas.th!==th||atlas.h!==rows*th){
     if(atlas){gl.deleteTexture(atlas.t);gl.deleteFramebuffer(atlas.f);}
     atlas=Object.assign(target(cols*tw,rows*th),{tw,th,cols});
     atlas.px=new Uint8Array(atlas.w*atlas.h*4);
     atlasCv.width=atlas.w;atlasCv.height=atlas.h;
   }
-  FILTERS.forEach((F,i)=>finalPass(F.id,{f:atlas.f,x:(i%cols)*tw,y:Math.floor(i/cols)*th,w:tw,h:th}));
+  btns.forEach((b,i)=>finalPass(b.dataset.id,{f:atlas.f,x:(i%cols)*tw,y:Math.floor(i/cols)*th,w:tw,h:th}));
   gl.readPixels(0,0,atlas.w,atlas.h,gl.RGBA,gl.UNSIGNED_BYTE,atlas.px);
   atlasCtx.putImageData(new ImageData(new Uint8ClampedArray(atlas.px.buffer),atlas.w,atlas.h),0,0);
   // GL은 아래에서 위로 저장되므로 썸네일 캔버스는 CSS로 상하 반전
-  document.querySelectorAll(".fx canvas").forEach((c,i)=>{
+  btns.forEach((b,i)=>{
+    const c=b.firstChild;
     if(c.width!==tw){c.width=tw;c.height=th;}
     c.getContext("2d").drawImage(atlasCv,(i%cols)*tw,Math.floor(i/cols)*th,tw,th,0,0,tw,th);
   });
@@ -562,36 +571,57 @@ $("save").onclick=async()=>{
 const strip=$("strip"), SL=["k","wr","sm","sh","br"];
 // 슬라이더를 현재 필터의 값으로 맞춤
 function syncSliders(){const a=adj(state.f);for(const id of SL){$(id).value=a[id];$(id+"v").textContent=a[id];}}
-let lastGroup=-1;
-for(const f of FILTERS){
-  const gi=group(f);
-  if(gi!==lastGroup){lastGroup=gi;const sep=document.createElement("span");sep.className="sep";sep.textContent=GROUP_LABEL[gi];strip.append(sep);}
-  const b=document.createElement("button");b.className="fx";b.type="button";
-  const cv=document.createElement("canvas"),nm=document.createElement("span");nm.textContent=f.name;b.append(cv,nm);
-  b.setAttribute("aria-pressed",f.id===state.f);
-  b.onclick=()=>{state.f=f.id;save();strip.querySelectorAll(".fx").forEach(x=>x.setAttribute("aria-pressed",x===b));syncSliders();dirty=true;};
-  strip.append(b);
+// 필터 띠: 현재 장면의 추천 필터 → "그 밖의 필터" 순서로 다시 만듦
+function buildStrip(){
+  strip.textContent="";
+  const rec=SCENES[state.scene].rec, rest=FILTERS.filter(f=>!rec.includes(f.id)).map(f=>f.id);
+  const addSep=t=>{const sp=document.createElement("span");sp.className="sep";sp.textContent=t;strip.append(sp);};
+  addSep(SCENES[state.scene].label+" 추천");
+  [...rec,...rest].forEach((id,i)=>{
+    if(i===rec.length) addSep("그 밖의 필터");
+    const f=FILTERS.find(x=>x.id===id);
+    const b=document.createElement("button");b.className="fx";b.type="button";b.dataset.id=id;
+    const cv=document.createElement("canvas"),nm=document.createElement("span");nm.textContent=f.name;b.append(cv,nm);
+    b.setAttribute("aria-pressed",id===state.f);
+    b.onclick=()=>pickFilter(id);
+    strip.append(b);
+  });
+  lastThumb=0;
+}
+function pickFilter(id){
+  state.f=id;state.last[state.scene]=id;save();
+  strip.querySelectorAll(".fx").forEach(x=>x.setAttribute("aria-pressed",x.dataset.id===id));
+  syncSliders();showName();dirty=true;
+}
+// 장면 바꾸기: 그 장면에서 마지막에 쓴 필터, 없으면 첫 추천 필터로
+function pickScene(sc){
+  state.scene=sc;
+  document.querySelectorAll("#scenes button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.s===sc));
+  $("scenehint").textContent=sc==="person"?"인물 보정 켜짐 · 값은 필터마다 기억":"인물 보정 꺼짐 · 값은 필터마다 기억";
+  buildStrip();pickFilter(state.last[sc]||SCENES[sc].rec[0]);
+}
+for(const [k,s] of Object.entries(SCENES)){
+  const b=document.createElement("button");b.type="button";b.dataset.s=k;b.textContent=s.label;
+  b.onclick=()=>pickScene(k);$("scenes").append(b);
 }
 for(const id of SL){
   $(id).oninput=()=>{
-    state.per[state.f]={...adj(state.f),[id]:+$(id).value};
+    state.per[state.scene+":"+state.f]={...adj(state.f),[id]:+$(id).value};
     $(id+"v").textContent=$(id).value;save();dirty=true;
   };
 }
-// 현재 필터 값을 기본값으로 되돌리기
-$("reset").onclick=()=>{delete state.per[state.f];save();syncSliders();dirty=true;};
-syncSliders();
+// 현재 장면·필터 값을 기본값으로 되돌리기
+$("reset").onclick=()=>{delete state.per[state.scene+":"+state.f];save();syncSliders();dirty=true;};
 // 필터·조절 패널 열고 닫기 (각각 따로, 둘 다 열어 두고 화면을 보며 조정 가능)
 function togglePanel(id){
   const open=$(id).hidden;
-  $(id).hidden=!open;$("t-"+id).setAttribute("aria-expanded",open);
-  if(id==="strip"&&open) lastThumb=0; // 열자마자 썸네일 갱신
+  $(id).hidden=!open;$(id==="filterpanel"?"t-strip":"t-"+id).setAttribute("aria-expanded",open);
+  if(id==="filterpanel"&&open) lastThumb=0; // 열자마자 썸네일 갱신
 }
-$("t-strip").onclick=()=>togglePanel("strip");
+$("t-strip").onclick=()=>togglePanel("filterpanel");
 $("t-controls").onclick=()=>togglePanel("controls");
-const showName=()=>{$("curname").textContent=FILTERS.find(f=>f.id===state.f).name+(sceneOf(state.f)==="obj"?" · 음식·사물":"");};
-showName();
-strip.addEventListener("click",showName);
+function showName(){$("curname").textContent=SCENES[state.scene].label+" · "+FILTERS.find(f=>f.id===state.f).name;}
+{const f=state.f;pickScene(state.scene);if(state.last[state.scene]!==f&&FILTERS.some(x=>x.id===f)) pickFilter(f);}
 // 미리보기를 누르고 있는 동안 원본 보기 (패널은 열린 채 유지)
 const stage=$("stage");
 stage.addEventListener("pointerdown",e=>{if(e.target.closest(".panel,#t-grid")) return;holding=true;dirty=true;});
