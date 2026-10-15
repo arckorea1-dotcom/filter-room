@@ -19,7 +19,9 @@ body{background:var(--bg);color:var(--fg);font:14px -apple-system,"Apple SD Goth
 #msg button{margin-top:12px}
 #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
 /* 필터·조절 패널: 미리보기 위에 겹쳐 뜨고, 버튼을 누를 때만 보임 */
-.panel{position:absolute;left:0;right:0;bottom:0;background:rgba(14,12,16,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
+/* 둘 다 열면 조절(위)과 필터(아래)가 겹치지 않고 쌓임 */
+#panels{position:absolute;left:0;right:0;bottom:0;display:flex;flex-direction:column}
+.panel{background:rgba(14,12,16,.82);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px)}
 #strip{display:flex;gap:8px;overflow-x:auto;padding:12px 16px;scrollbar-width:none}
 #curname{position:absolute;left:12px;top:10px;font:600 12px inherit;background:rgba(0,0,0,.5);color:var(--fg);padding:4px 10px;border-radius:999px;pointer-events:none}
 .grp{display:flex;gap:8px;justify-self:start}.grp.end{justify-self:end}
@@ -61,13 +63,15 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
   <div id="msg" hidden></div>
   <div id="rectime" hidden></div>
   <div id="curname"></div>
-  <div class="panel" id="strip" role="group" aria-label="필터" hidden></div>
+  <div id="panels">
   <div class="panel" id="controls" hidden>
   <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
   <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
   <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
   <label class="row"><span>선명도</span><input id="sh" type="range" min="0" max="100" value="40"><output id="shv"></output></label>
   <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
+  </div>
+  <div class="panel" id="strip" role="group" aria-label="필터" hidden></div>
   </div>
 </div>
 <div id="modes" role="group" aria-label="촬영 모드"><button type="button" data-m="photo" aria-pressed="true">사진</button><button type="button" data-m="video" aria-pressed="false">동영상</button></div>
@@ -497,21 +501,19 @@ for(const id of ["k","wr","sm","sh","br"]){
   const el=$(id),out=$(id+"v");el.value=state[id];out.textContent=state[id];
   el.oninput=()=>{state[id]=+el.value;out.textContent=el.value;save();dirty=true;};
 }
-// 필터·조절 패널 열고 닫기 (한 번에 하나만)
+// 필터·조절 패널 열고 닫기 (각각 따로, 둘 다 열어 두고 화면을 보며 조정 가능)
 function togglePanel(id){
-  for(const p of ["strip","controls"]){
-    const open=p===id&&$(p).hidden;
-    $(p).hidden=!open;$("t-"+p).setAttribute("aria-expanded",open);
-  }
+  const open=$(id).hidden;
+  $(id).hidden=!open;$("t-"+id).setAttribute("aria-expanded",open);
 }
 $("t-strip").onclick=()=>togglePanel("strip");
 $("t-controls").onclick=()=>togglePanel("controls");
 const showName=()=>{$("curname").textContent=FILTERS.find(f=>f.id===state.f).name;};
 showName();
 strip.addEventListener("click",showName);
-// 미리보기를 누르고 있는 동안 원본 보기 (패널 바깥을 누르면 패널도 닫힘)
+// 미리보기를 누르고 있는 동안 원본 보기 (패널은 열린 채 유지)
 const stage=$("stage");
-stage.addEventListener("pointerdown",e=>{if(e.target.closest(".panel")) return;togglePanel(null);holding=true;dirty=true;});
+stage.addEventListener("pointerdown",e=>{if(e.target.closest(".panel")) return;holding=true;dirty=true;});
 for(const ev of ["pointerup","pointercancel","pointerleave"]) stage.addEventListener(ev,()=>{holding=false;dirty=true;});
 
 // ── 시작 ──
