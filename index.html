@@ -14,8 +14,9 @@
 html,body{height:100%;margin:0}
 body{background:#000;color:var(--fg);font:14px -apple-system,"Apple SD Gothic Neo",sans-serif;overflow:hidden;-webkit-user-select:none;user-select:none}
 /* 카메라 화면은 전체 화면, 조작부(#ui)는 그 위 아래쪽에 겹침 */
-#stage{position:fixed;inset:0;background:#000;touch-action:none}
-#ui{position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column}
+/* iOS Safari는 WebGL 캔버스 레이어를 뒤 요소보다 위에 합성할 수 있어 쌓임 순서를 명시 */
+#stage{position:fixed;inset:0;background:#000;touch-action:none;z-index:0}
+#ui{position:fixed;left:0;right:0;bottom:0;display:flex;flex-direction:column;z-index:10;transform:translateZ(0)}
 #modes,#bar{background:rgba(0,0,0,.45)}
 #gl{width:100%;height:100%;object-fit:contain;display:block}
 #msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;font-size:14px;line-height:1.6;background:rgba(0,0,0,.55)}
@@ -64,7 +65,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:26px;margin:0}
 #review video{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:10px;background:#000}
 button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offset:2px}
 #lib{display:none}
-#review{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
+#review{position:fixed;inset:0;z-index:20;background:var(--bg);display:flex;flex-direction:column;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
 #review img{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:10px;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
 #review p{margin:0;text-align:center;color:var(--muted);font-size:12px}
 #review .acts{display:flex;gap:10px}
@@ -113,6 +114,8 @@ button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offs
 </div>
 
 <script>
+// 아이폰에서 원인을 알 수 있도록 스크립트 오류를 화면에 표시
+window.addEventListener("error",e=>{const m=document.getElementById("msg");if(m){m.textContent="오류: "+e.message+" ("+(e.lineno||"?")+"행)";m.hidden=false;}});
 // ── 필터 정의 (값은 0~255 기준 색 더하기, 나머지는 비율) ──
 // exp 노출, con 대비, sat 채도, temp 색온도(+따뜻), tint(+마젠타), fade 검정 들뜸, roll 하이라이트 눌림
 // sh/hi 어두운·밝은 영역에 더할 색, vig 비네팅, grain 입자, mono 흑백
