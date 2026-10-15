@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Filter Room">
+<title>Filter Room</title>
+<style>
+:root{--bg:#0e0c10;--panel:#1c191f;--line:#2e2a33;--fg:#f2eef4;--muted:#9b93a3;--accent:#e8a6b8;--accent-ink:#2a1219;color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:14px -apple-system,"Apple SD Gothic Neo",sans-serif;display:flex;flex-direction:column;overflow:hidden;padding-top:env(safe-area-inset-top,0px);-webkit-user-select:none;user-select:none}
+#stage{flex:1;min-height:0;position:relative;background:#000;touch-action:none}
+#gl{width:100%;height:100%;object-fit:contain;display:block}
+#msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;padding:24px;font-size:14px;line-height:1.6;background:rgba(0,0,0,.55)}
+#msg button{margin-top:12px}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .25s}
+#strip{display:flex;gap:8px;overflow-x:auto;padding:10px 16px 2px;scrollbar-width:none}
+#strip::-webkit-scrollbar{display:none}
+.fx{flex:0 0 auto;border:1px solid var(--line);background:var(--panel);color:var(--muted);font:500 13px inherit;padding:7px 12px;border-radius:999px;cursor:pointer}
+.fx[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+#controls{display:grid;gap:2px;padding:6px 16px 0}
+.row{display:grid;grid-template-columns:62px 1fr 30px;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+.row output{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg)}
+input[type=range]{width:100%;accent-color:var(--accent);height:26px;margin:0}
+#bar{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;padding:8px 24px calc(10px + env(safe-area-inset-bottom,0px))}
+.side{height:44px;min-width:64px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--fg);font:500 13px inherit;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0 12px}
+#lib-btn{justify-self:start}#flip{justify-self:end}
+#shutter{width:68px;height:68px;border-radius:50%;border:4px solid var(--fg);background:var(--accent);cursor:pointer}
+#shutter:active{transform:scale(.94)}
+button:focus-visible,label:focus-within{outline:2px solid var(--fg);outline-offset:2px}
+#lib{display:none}
+#review{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;gap:12px;padding:calc(12px + env(safe-area-inset-top,0px)) 16px calc(16px + env(safe-area-inset-bottom,0px))}
+#review img{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:10px;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
+#review p{margin:0;text-align:center;color:var(--muted);font-size:12px}
+#review .acts{display:flex;gap:10px}
+#review .acts button{flex:1;height:48px;border-radius:12px;font:600 15px inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg)}
+#review .acts .primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="gl" aria-label="카메라 미리보기"></canvas>
+  <div id="flash"></div>
+  <div id="msg" hidden></div>
+</div>
+<div id="strip" role="group" aria-label="필터"></div>
+<div id="controls">
+  <label class="row"><span>필터 강도</span><input id="k" type="range" min="0" max="100" value="80"><output id="kv"></output></label>
+  <label class="row"><span>주름 완화</span><input id="wr" type="range" min="0" max="100" value="70"><output id="wrv"></output></label>
+  <label class="row"><span>피부 보정</span><input id="sm" type="range" min="0" max="100" value="50"><output id="smv"></output></label>
+  <label class="row"><span>밝기</span><input id="br" type="range" min="-50" max="50" value="0"><output id="brv"></output></label>
+</div>
+<div id="bar">
+  <label class="side" id="lib-btn" for="lib">앨범<input id="lib" type="file" accept="image/*"></label>
+  <button id="shutter" type="button" aria-label="촬영"></button>
+  <button class="side" id="flip" type="button">전환</button>
+</div>
+<div id="review" hidden>
+  <img id="shot" alt="촬영한 사진">
+  <p>공유 시트가 안 뜨면 사진을 길게 눌러 저장하세요</p>
+  <div class="acts"><button id="retake" type="button">다시 찍기</button><button id="save" class="primary" type="button">사진 저장</button></div>
+</div>
+
+<script>
+// ── 필터 정의 (값은 0~255 기준 색 더하기, 나머지는 비율) ──
+// exp 노출, con 대비, sat 채도, temp 색온도(+따뜻), tint(+마젠타), fade 검정 들뜸, roll 하이라이트 눌림
+// sh/hi 어두운·밝은 영역에 더할 색, vig 비네팅, grain 입자, mono 흑백
+const FILTERS=[
+  {id:"none",name:"원본",p:{}},
+  {id:"milk",name:"뽀얀",p:{exp:.14,con:-.12,sat:-.08,temp:.02,tint:.25,fade:.05,hi:[6,2,5]}},
+  {id:"peach",name:"피치",p:{exp:.08,con:-.06,sat:.04,temp:.22,tint:.35,sh:[8,0,2],hi:[8,3,0]}},
+  {id:"clear",name:"클리어",p:{exp:.10,con:.12,sat:.14,temp:-.04}},
+  {id:"cream",name:"크림",p:{exp:.06,con:-.08,sat:-.16,temp:.18,fade:.07,hi:[8,6,0]}},
+  {id:"blueberry",name:"Blueberry",p:{exp:.10,con:-.06,sat:-.10,temp:-.30,tint:.30,fade:.07,sh:[-2,0,16],hi:[6,2,10]}},
+  {id:"matt",name:"Matt",p:{exp:.03,con:-.18,sat:-.22,temp:.05,fade:.15,roll:.06,sh:[4,4,8]}},
+  {id:"film",name:"필름",p:{con:.05,sat:-.10,temp:.14,fade:.10,sh:[0,6,10],hi:[10,6,0],vig:.28,grain:.05}},
+  {id:"cool",name:"쿨",p:{exp:.05,sat:-.04,temp:-.24}},
+  {id:"golden",name:"골든",p:{exp:.03,sat:.10,temp:.34,hi:[12,6,-6]}},
+  {id:"mono",name:"흑백",p:{mono:1,con:.10,fade:.04}},
+];
+
+const $=id=>document.getElementById(id);
+const canvas=$("gl");
+const gl=canvas.getContext("webgl",{preserveDrawingBuffer:true,premultipliedAlpha:false});
+
+// ── 셰이더 ──
+const VS=`attribute vec2 a;varying vec2 v;void main(){v=a*.5+.5;gl_Position=vec4(a,0.,1.);}`;
+// 9탭 가우시안 블러 (dir = 텍셀 간격 × 방향)
+const BLUR=`precision highp float;varying vec2 v;uniform sampler2D T;uniform vec2 dir;
+void main(){vec3 s=texture2D(T,v).rgb*.227027;
+s+=(texture2D(T,v+dir).rgb+texture2D(T,v-dir).rgb)*.1945946;
+s+=(texture2D(T,v+dir*2.).rgb+texture2D(T,v-dir*2.).rgb)*.1216216;
+s+=(texture2D(T,v+dir*3.).rgb+texture2D(T,v-dir*3.).rgb)*.054054;
+s+=(texture2D(T,v+dir*4.).rgb+texture2D(T,v-dir*4.).rgb)*.016216;
+gl_FragColor=vec4(s,1.);}`;
+const COPY=`precision highp float;varying vec2 v;uniform sampler2D T;void main(){gl_FragColor=texture2D(T,v);}`;
+// 최종: 피부 보정(작은 블러) → 주름 완화(큰 블러 평균보다 어두운 피부만 채움) → 색감 필터 → 강도·밝기
+const FINAL=`precision highp float;varying vec2 v;
+uniform sampler2D S,B,L;uniform float uMirror,uOrig,uSm,uWr,uK,uBr,uExp,uCon,uSat,uTemp,uTint,uFade,uRoll,uVig,uGrain,uMono,uSeed;
+uniform vec3 uSh,uHi;uniform vec2 uRes;
+const vec3 LU=vec3(.299,.587,.114);
+float sat01(float x){return clamp(x,0.,1.);}
+void main(){
+ vec2 uv=vec2(uMirror>.5?1.-v.x:v.x,v.y);
+ vec3 c=texture2D(S,uv).rgb;
+ if(uOrig>.5){gl_FragColor=vec4(c,1.);return;}
+ float Y=dot(c,LU),Cb=.5-.1687*c.r-.3313*c.g+.5*c.b,Cr=.5+.5*c.r-.4187*c.g-.0813*c.b,k8=8./255.;
+ float skin=sat01((Cr-133./255.)/k8)*sat01((173./255.-Cr)/k8)*sat01((Cb-77./255.)/k8)*sat01((127./255.-Cb)/k8)*sat01((Y-40./255.)/(20./255.));
+ vec3 o=c;
+ if(skin>0.){
+  vec3 b=texture2D(B,uv).rgb,l=texture2D(L,uv).rgb;
+  float edge=sat01(1.-abs(Y-dot(b,LU))/((14.+22.*uSm)/255.));
+  o+=(b-c)*uSm*skin*edge*.92+uSm*skin*7./255.;
+  float dk=dot(l,LU)-Y;
+  if(dk>0.){o+=(l-c)*uWr*skin*sat01(dk/(28./255.))*sat01((75./255.-dk)/(25./255.));}
+ }
+ vec3 x=o*vec3(1.+uTemp*.12+uTint*.03,1.-uTint*.08,1.-uTemp*.12+uTint*.03)*exp2(uExp);
+ x=clamp((x-.5)*(1.+uCon)+.5,0.,1.);
+ x=uFade+x*(1.-uFade-uRoll);
+ float Lm=dot(x,LU);
+ x=mix(vec3(Lm)+(x-vec3(Lm))*(1.+uSat),vec3(Lm),uMono);
+ x+=uSh/255.*(1.-Lm)*(1.-Lm)+uHi/255.*Lm*Lm;
+ if(uVig>0.){vec2 d=v-.5;x*=1.-uVig*pow(dot(d,d)/.5,1.4);}
+ if(uGrain>0.){x+=(fract(sin(dot(v*uRes+uSeed,vec2(12.9898,78.233)))*43758.5453)-.5)*uGrain;}
+ gl_FragColor=vec4(clamp(mix(o,x,uK)*exp2(uBr),0.,1.),1.);
+}`;
+
+function prog(fs){
+  const p=gl.createProgram();
+  for(const [type,src] of [[gl.VERTEX_SHADER,VS],[gl.FRAGMENT_SHADER,fs]]){
+    const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+    if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(p,s);
+  }
+  gl.bindAttribLocation(p,0,"a");gl.linkProgram(p);
+  const u={};const n=gl.getProgramParameter(p,gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){const name=gl.getActiveUniform(p,i).name;u[name]=gl.getUniformLocation(p,name);}
+  return {p,u};
+}
+let P;
+function tex(){
+  const t=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,t);
+  for(const [k,val] of [[gl.TEXTURE_MIN_FILTER,gl.LINEAR],[gl.TEXTURE_MAG_FILTER,gl.LINEAR],[gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE],[gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D,k,val);
+  return t;
+}
+function target(w,h){
+  const t=tex();gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  const f=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,f);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,t,0);
+  return {t,f,w,h};
+}
+let srcTex,T={},W=0,H=0;
+function setup(){
+  P={blur:prog(BLUR),copy:prog(COPY),fin:prog(FINAL)};
+  const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);gl.vertexAttribPointer(0,2,gl.FLOAT,false,0,0);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  srcTex=tex();
+}
+function resize(w,h){
+  if(w===W&&h===H) return;
+  W=w;H=h;canvas.width=w;canvas.height=h;
+  for(const k in T){gl.deleteTexture(T[k].t);gl.deleteFramebuffer(T[k].f);}
+  const qw=Math.max(1,Math.round(w/4)),qh=Math.max(1,Math.round(h/4));
+  T={a:target(w,h),b:target(w,h),q1:target(qw,qh),q2:target(qw,qh)};
+}
+function pass(pr,inTex,out,dir){
+  gl.useProgram(pr.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,out?out.f:null);
+  gl.viewport(0,0,out?out.w:W,out?out.h:H);
+  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,inTex);gl.uniform1i(pr.u.T,0);
+  if(dir) gl.uniform2f(pr.u.dir,dir[0],dir[1]);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+// ── 상태 ──
+const state={f:"milk",k:80,wr:70,sm:50,br:0,facing:"user"};
+try{Object.assign(state,JSON.parse(localStorage.getItem("fr-cam")||"{}"));}catch(e){}
+if(!FILTERS.some(f=>f.id===state.f)) state.f="milk";
+const save=()=>{try{localStorage.setItem("fr-cam",JSON.stringify(state));}catch(e){}};
+let holding=false,mode="none",video=null,stream=null,dirty=true;
+
+function render(){
+  const s=state, p=FILTERS.find(f=>f.id===s.f).p, sm=s.sm/100, wr=s.wr/100;
+  if(sm>0||wr>0){
+    const big=Math.max(W,H), r1=big/240/4, r2=big/4/70/4;
+    pass(P.blur,srcTex,T.a,[r1/W,0]); pass(P.blur,T.a.t,T.b,[0,r1/H]);
+    pass(P.copy,srcTex,T.q1);
+    const qw=T.q1.w,qh=T.q1.h;
+    for(let i=0;i<2;i++){pass(P.blur,T.q1.t,T.q2,[r2/qw,0]);pass(P.blur,T.q2.t,T.q1,[0,r2/qh]);}
+  }
+  const u=P.fin.u;gl.useProgram(P.fin.p);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.viewport(0,0,W,H);
+  [[srcTex,"S"],[T.b.t,"B"],[T.q1.t,"L"]].forEach(([t,n],i)=>{gl.activeTexture(gl.TEXTURE0+i);gl.bindTexture(gl.TEXTURE_2D,t);gl.uniform1i(u[n],i);});
+  const f=(n,v)=>gl.uniform1f(u[n],v);
+  f("uMirror",mode==="cam"&&s.facing==="user"?1:0); f("uOrig",holding?1:0);
+  f("uSm",sm); f("uWr",wr); f("uK",s.k/100); f("uBr",s.br/100);
+  f("uExp",p.exp||0); f("uCon",p.con||0); f("uSat",p.sat||0); f("uTemp",p.temp||0); f("uTint",p.tint||0);
+  f("uFade",p.fade||0); f("uRoll",p.roll||0); f("uVig",p.vig||0); f("uGrain",p.grain||0); f("uMono",p.mono||0); f("uSeed",(performance.now()%1000)/10);
+  gl.uniform3fv(u.uSh,p.sh||[0,0,0]); gl.uniform3fv(u.uHi,p.hi||[0,0,0]); gl.uniform2f(u.uRes,W,H);
+  gl.drawArrays(gl.TRIANGLE_STRIP,0,4);
+}
+
+function loop(){
+  if(mode==="cam"&&video.readyState>=2&&video.videoWidth){
+    resize(video.videoWidth,video.videoHeight);
+    gl.bindTexture(gl.TEXTURE_2D,srcTex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
+    render();
+  }else if(mode==="photo"&&dirty){dirty=false;render();}
+  requestAnimationFrame(loop);
+}
+
+// ── 카메라 ──
+function showMsg(html,btn){const m=$("msg");m.innerHTML="";const d=document.createElement("div");d.innerHTML=html;
+  if(btn){const b=document.createElement("button");b.className="side";b.style.margin="12px auto 0";b.textContent=btn.label;b.onclick=btn.run;d.append(b);}
+  m.append(d);m.hidden=false;}
+async function startCam(){
+  if(stream) stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{facingMode:state.facing,width:{ideal:1920},height:{ideal:1440}}});
+    if(!video){video=document.createElement("video");video.playsInline=true;video.muted=true;video.setAttribute("playsinline","");}
+    video.srcObject=stream;await video.play();
+    mode="cam";$("msg").hidden=true;
+  }catch(e){
+    showMsg("카메라를 켤 수 없습니다.<br>설정 → Safari → 카메라에서 허용으로 바꾸거나,<br>아래 앨범 버튼으로 사진을 불러오세요.",{label:"다시 시도",run:startCam});
+    if(mode!=="photo") loadSample();
+  }
+}
+$("flip").onclick=()=>{state.facing=state.facing==="user"?"environment":"user";save();startCam();};
+
+// 사진 불러오기 (앨범) — 최대 4096px
+function useImage(img){
+  const s=Math.min(1,4096/Math.max(img.width,img.height));
+  const c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
+  c.getContext("2d").drawImage(img,0,0,c.width,c.height);
+  if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}
+  mode="photo";resize(c.width,c.height);
+  gl.bindTexture(gl.TEXTURE_2D,srcTex);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,c);
+  dirty=true;
+}
+$("lib").onchange=async e=>{
+  const file=e.target.files[0];e.target.value="";if(!file) return;
+  try{const url=URL.createObjectURL(file),img=new Image();img.src=url;await img.decode();useImage(img);URL.revokeObjectURL(url);
+    showMsg("앨범 사진 편집 중",{label:"카메라로 돌아가기",run:startCam});setTimeout(()=>$("msg").hidden=true,1200);}
+  catch(err){showMsg("이 사진을 열 수 없습니다. 다른 사진을 골라주세요.");}
+};
+// 카메라를 못 쓸 때 보여줄 예시 그림
+function loadSample(){
+  const c=document.createElement("canvas");c.width=900;c.height=1200;const g=c.getContext("2d");
+  let gr=g.createLinearGradient(0,0,0,1200);gr.addColorStop(0,"#b9c7d6");gr.addColorStop(1,"#e7d9cf");g.fillStyle=gr;g.fillRect(0,0,900,1200);
+  g.fillStyle="#41536b";g.beginPath();g.moveTo(170,1200);g.quadraticCurveTo(450,820,730,1200);g.fill();
+  g.fillStyle="#d9ab92";g.fillRect(395,780,110,180);
+  g.fillStyle="#2b2220";g.beginPath();g.ellipse(450,500,250,300,0,0,7);g.fill();
+  gr=g.createRadialGradient(420,520,40,450,560,260);gr.addColorStop(0,"#efc6ad");gr.addColorStop(1,"#c9937a");
+  g.fillStyle=gr;g.beginPath();g.ellipse(450,560,190,245,0,0,7);g.fill();
+  g.fillStyle="#2b2220";g.beginPath();g.ellipse(450,380,215,120,0,Math.PI,0);g.fill();
+  g.fillStyle="#3a2a26";for(const x of [380,520]){g.beginPath();g.ellipse(x,560,20,11,0,0,7);g.fill();}
+  g.fillStyle="#c9756f";g.beginPath();g.ellipse(450,690,46,16,0,0,7);g.fill();
+  useImage(c);
+}
+
+// ── 촬영과 저장 ──
+let shotBlob=null;
+$("shutter").onclick=()=>{
+  if(mode==="none") return;
+  render();
+  const fl=$("flash");fl.style.transition="none";fl.style.opacity=".8";requestAnimationFrame(()=>{fl.style.transition="opacity .25s";fl.style.opacity="0";});
+  canvas.toBlob(b=>{shotBlob=b;$("shot").src=URL.createObjectURL(b);$("review").hidden=false;},"image/jpeg",.93);
+};
+$("retake").onclick=()=>{$("review").hidden=true;URL.revokeObjectURL($("shot").src);};
+$("save").onclick=async()=>{
+  const name="filterroom_"+new Date().toISOString().slice(0,19).replace(/[-:T]/g,"")+".jpg";
+  const file=new File([shotBlob],name,{type:"image/jpeg"});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file]});}catch(e){}
+  }else{
+    const a=document.createElement("a");a.href=$("shot").src;a.download=name;a.click();
+  }
+};
+
+// ── 필터 띠와 슬라이더 ──
+const strip=$("strip");
+for(const f of FILTERS){
+  const b=document.createElement("button");b.className="fx";b.type="button";b.textContent=f.name;
+  b.setAttribute("aria-pressed",f.id===state.f);
+  b.onclick=()=>{state.f=f.id;save();strip.querySelectorAll(".fx").forEach(x=>x.setAttribute("aria-pressed",x===b));dirty=true;};
+  strip.append(b);
+}
+for(const id of ["k","wr","sm","br"]){
+  const el=$(id),out=$(id+"v");el.value=state[id];out.textContent=state[id];
+  el.oninput=()=>{state[id]=+el.value;out.textContent=el.value;save();dirty=true;};
+}
+// 미리보기를 누르고 있는 동안 원본 보기
+const stage=$("stage");
+stage.addEventListener("pointerdown",()=>{holding=true;dirty=true;});
+for(const ev of ["pointerup","pointercancel","pointerleave"]) stage.addEventListener(ev,()=>{holding=false;dirty=true;});
+
+// ── 시작 ──
+if(!gl){showMsg("이 기기에서는 그래픽 가속(WebGL)을 쓸 수 없습니다.");}
+else{
+  try{setup();resize(4,4);requestAnimationFrame(loop);
+    if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia) startCam(); else {loadSample();showMsg("이 브라우저는 카메라를 지원하지 않습니다. 앨범 버튼으로 사진을 불러오세요.");}
+  }catch(e){showMsg("초기화 오류: "+e.message);}
+}
+</script>
+</body>
+</html>
